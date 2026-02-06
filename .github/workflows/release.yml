@@ -1,0 +1,18 @@
+name: Release
+on:
+  push:
+    tags:
+      - 'v*'
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create ZIP
+        run: zip -r MiniOS_${{ github.ref_name }}.zip ./ -x "*.venv/*" -x "*.git*" -x "*.idea*"
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v1
+        with:
+          files: MiniOS_${{ github.ref_name }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

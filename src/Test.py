@@ -48,10 +48,10 @@ def load_and_color_icon(path, color, size=(50, 50)):
 
 # Remplacez les chemins ci-dessous par vos fichiers réels
 paths = {
-    "power": "on-off-button.png",
-    "desktop": "desktop-monitor.png",
-    "raspi": "stats.png",
-    "clock": "clock.png"
+    "power": "../assets/on-off-button.png",
+    "desktop": "../assets/desktop-monitor.png",
+    "raspi": "../assets/stats.png",
+    "clock": "../assets/clock.png"
 }
 
 # Dictionnaire pour stocker les icônes (Normal et Cliqué)
@@ -154,11 +154,11 @@ PADDING = 50
 GAUGE_Y = 100  # Position verticale des jauges
 
 # Positions des 3 jauges
-jaugeTemp = GaugeTemperature(GAUGE_SIZE, "Compteur.png", "Aiguille.png",
+jaugeTemp = GaugeTemperature(GAUGE_SIZE, "../assets/Compteur.png", "../assets/Aiguille.png",
                              (50, GAUGE_Y), (GAUGE_SIZE, GAUGE_SIZE), ARROW_SIZE, title="TEMPÉRATURE")
-jaugeCpu = GaugeCPU(GAUGE_SIZE, "CompteurCpu.png", "Aiguille.png",
+jaugeCpu = GaugeCPU(GAUGE_SIZE, "../assets/CompteurCpu.png", "../assets/Aiguille.png",
                     (50 + GAUGE_SIZE + PADDING, GAUGE_Y), (GAUGE_SIZE, GAUGE_SIZE), ARROW_SIZE, title="CPU")
-jaugeRam = GaugeCPU(GAUGE_SIZE, "CompteurRam.png", "Aiguille.png",
+jaugeRam = GaugeCPU(GAUGE_SIZE, "../assets/CompteurRam.png", "../assets/Aiguille.png",
                     (50 + (GAUGE_SIZE + PADDING) * 2, GAUGE_Y), (GAUGE_SIZE, GAUGE_SIZE), ARROW_SIZE, title="RAM")
 
 
