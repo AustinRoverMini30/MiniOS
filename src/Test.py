@@ -1,9 +1,12 @@
+import io
 import os
-
+import shutil
+import zipfile
 import pygame
-import sys
+import subprocess
 from datetime import datetime
 import psutil
+import requests
 
 # --- CONFIGURATION ---
 pygame.init()
@@ -24,6 +27,118 @@ clock = pygame.time.Clock()
 
 
 # --- CHARGEMENT DES ICONES ---
+
+def get_current_version():
+    with open("../VERSION", "r") as f:
+        return f.read().strip()
+
+def get_latest_version_from_github(repo_owner, repo_name):
+    url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases/latest"
+    response = requests.get(url)
+    if response.status_code == 200:
+        return response.json()["tag_name"].lstrip("v")  # Supprime le "v" si présent
+    return None
+
+def check_for_updates():
+    current_version = get_current_version()
+    latest_version = get_latest_version_from_github("AustinRoverMini30", "MiniOS")
+
+    if latest_version and latest_version != current_version:
+        print(f"Une nouvelle version est disponible : {latest_version} (vous avez {current_version})")
+        download_latest_release(latest_version)
+        return latest_version
+    else:
+        print("Votre version est à jour.")
+        return None
+
+def download_latest_release(version):
+    print(version)
+    # URL de la release (remplace par l'URL de ton ZIP)
+    release_url = f"https://github.com/AustinRoverMini30/MiniOS/archive/refs/tags/v{version}.zip"
+    response = requests.get(release_url, stream=True)
+
+    if response.status_code == 200:
+        # Extraire le ZIP directement à la racine du projet
+        with zipfile.ZipFile(io.BytesIO(response.content)) as zip_file:
+            # Détecter s'il y a un dossier racine unique dans l'archive (ex: MiniOS-<tag>/...)
+            all_names = [name for name in zip_file.namelist() if name and not name.endswith('/')]
+            first_components = [name.split('/', 1)[0] for name in zip_file.namelist() if name]
+            root_folder = None
+            if first_components:
+                first = first_components[0]
+                if all(comp == first for comp in first_components):
+                    root_folder = first
+
+            project_root = os.path.abspath('..')
+
+            for member in zip_file.infolist():
+                member_name = member.filename
+                # Ignorer les répertoires explicites
+                if member_name.endswith('/'):
+                    continue
+
+                # Enlever le dossier racine unique si présent
+                if root_folder and member_name.startswith(root_folder + '/'):
+                    rel_path = member_name[len(root_folder) + 1:]
+                else:
+                    rel_path = member_name
+
+                if not rel_path:
+                    # cas où on tombe sur l'entrée du dossier racine lui-même
+                    continue
+
+                # Normaliser et empêcher l'écriture hors du répertoire du projet
+                dest_path = os.path.normpath(os.path.join(project_root, rel_path))
+                if not dest_path.startswith(project_root):
+                    print(f"Chemin ignoré (tentative d'évasion) : {member_name}")
+                    continue
+
+                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+
+                # Extraire le fichier en écrasant si nécessaire
+                with zip_file.open(member) as src, open(dest_path, 'wb') as dst:
+                    shutil.copyfileobj(src, dst)
+
+                # Restaurer les permissions exécutables si nécessaire
+                if member.external_attr >> 16:
+                    try:
+                        os.chmod(dest_path, member.external_attr >> 16)
+                    except Exception:
+                        pass
+
+        print(f"Mise à jour vers la version {version} terminée !")
+
+        # Après la mise à jour, tenter de lancer launcher.sh à la racine du projet
+        try:
+            launcher_path = os.path.join(project_root, 'launcher.sh')
+            if os.path.exists(launcher_path):
+                try:
+                    os.chmod(launcher_path, 0o755)
+                except Exception:
+                    pass
+
+                print('Lancement de launcher.sh...')
+                # Fermer proprement pygame si en cours
+                try:
+                    pygame.quit()
+                except Exception:
+                    pass
+
+                # Lancer le script et quitter ce processus
+                try:
+                    # Utiliser Popen pour détacher le nouveau processus
+                    subprocess.Popen([launcher_path], cwd=project_root, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+                except Exception as e:
+                    print(f"Erreur en lançant launcher.sh : {e}")
+
+                # Quitter l'application actuelle
+                sys.exit(0)
+            else:
+                print('launcher.sh introuvable à la racine du projet ; mise à jour terminée sans relance.')
+        except Exception as e:
+            print(f"Erreur lors du lancement post-mise-à-jour : {e}")
+    else:
+        print("Échec du téléchargement de la mise à jour.")
 
 def load_and_color_icon(path, color, size=(50, 50)):
     """Charge un PNG et le teinte avec la couleur choisie"""
@@ -64,6 +179,28 @@ icons = {
 }
 
 # --- CLASSES JAUGES ---
+
+class Indicator:
+
+    def __init__(self, size, color_on, color_off, icon, methode=None):
+        self.size = size
+        self.color_on = color_on
+        self.color_off = color_off
+        self.state = False
+        self.icon = pygame.image.load(icon)
+        self.icon = pygame.transform.scale(self.icon, (size[1] - 10, size[1] - 10))
+        self.methode = methode
+        self.hitbox = pygame.Rect(0, 0, size[0], size[1])
+
+    def show(self, fenetre, position):
+        color = self.color_on if self.state else self.color_off
+        pygame.draw.rect(fenetre, color, (*position, *self.size), border_radius=2)
+        fenetre.blit(self.icon, self.icon.get_rect(center=(position[0] + self.size[0] // 2, position[1] + self.size[1] // 2)))
+        self.hitbox = pygame.Rect(position[0], position[1], self.size[0], self.size[1])
+
+    def on_click(self):
+        if (self.methode != None):
+            self.methode()
 
 class GaugeRound:
 
@@ -136,6 +273,29 @@ class GaugeCPU(GaugeRound):
         rotation = 50 - (smoothed_value * 25 / 10)
         super().show(fenetre, rotation)
 
+class IndicatorBox:
+
+    def __init__(self, position, size, color, weight):
+        self.position = position
+        self.size = size
+        self.color = color
+        self.weight = weight
+        self.indicators = []
+
+    def add_indicator(self, indicator):
+        self.indicators.append(indicator)
+
+    def show(self, fenetre):
+        pygame.draw.rect(fenetre, self.color, (*self.position, *self.size), self.weight)
+
+        x_temp = 20
+        y_temp = 20
+
+        for indicator in self.indicators:
+            indicator.show(fenetre, (self.position[0] + x_temp, self.position[1] + y_temp))
+
+            x_temp += indicator.size[0] + 10
+
 # --- ETATS ---
 current_view = "main"
 # Variables pour gérer l'animation de clic
@@ -151,7 +311,7 @@ rect_switch = pygame.Rect(650, 370, 120, 80)
 GAUGE_SIZE = 200
 ARROW_SIZE = 25
 PADDING = 50
-GAUGE_Y = 100  # Position verticale des jauges
+GAUGE_Y = 20
 
 # Positions des 3 jauges
 jaugeTemp = GaugeTemperature(GAUGE_SIZE, "../assets/Compteur.png", "../assets/Aiguille.png",
@@ -161,6 +321,14 @@ jaugeCpu = GaugeCPU(GAUGE_SIZE, "../assets/CompteurCpu.png", "../assets/Aiguille
 jaugeRam = GaugeCPU(GAUGE_SIZE, "../assets/CompteurRam.png", "../assets/Aiguille.png",
                     (50 + (GAUGE_SIZE + PADDING) * 2, GAUGE_Y), (GAUGE_SIZE, GAUGE_SIZE), ARROW_SIZE, title="RAM")
 
+wifiIndic = Indicator((100, 30), (255, 100, 0), GRAY_DARK, "../assets/wifi.png")
+fanIndic = Indicator((100, 30), (50, 0, 255), GRAY_DARK, "../assets/fan.png")
+updateIndic = Indicator((100, 30), (0, 255, 0), GRAY_DARK, "../assets/update.png", methode=check_for_updates)
+
+indicatorsBox = IndicatorBox((20, GAUGE_SIZE + 70), (SCREEN_WIDTH-40, 70), WHITE, 2)
+indicatorsBox.add_indicator(wifiIndic)
+indicatorsBox.add_indicator(fanIndic)
+indicatorsBox.add_indicator(updateIndic)
 
 # --- DESSIN DES COMPOSANTS ---
 
@@ -217,10 +385,15 @@ def show_stats():
     cpu = get_cpu_usage()
     ram = psutil.virtual_memory().percent
 
+    wifiIndic.state = psutil.net_if_stats().get('wlan0', None) and psutil.net_if_stats()['wlan0'].isup
+    fanIndic.state = False
+
     # Afficher les 3 jauges avec images
     jaugeTemp.show(screen, temp)
     jaugeCpu.show(screen, cpu)
     jaugeRam.show(screen, ram)
+
+    indicatorsBox.show(screen)
 
     draw_bottom_nav()
 
@@ -244,6 +417,8 @@ def main():
                     clicked_btn = "desktop"
                 elif rect_switch.collidepoint(event.pos):
                     clicked_btn = "switch"
+                elif updateIndic.hitbox.collidepoint(event.pos):
+                    updateIndic.on_click()
 
             # Gestion du relâchement (Action)
             if event.type == pygame.MOUSEBUTTONUP:
