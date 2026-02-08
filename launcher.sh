@@ -7,4 +7,4 @@ done
 # Aller dans le dossier du projet
 cd /home/nicolas/Téléchargements/MiniOS/src
 # Lancer l'app
-/usr/bin/python3 Test.py
+/usr/bin/python3 main.py
