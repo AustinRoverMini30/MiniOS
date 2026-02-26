@@ -3,7 +3,7 @@ import pygame
 
 class Tile:
     def __init__(self, size, position, color, icon="", icon_size=(50,50), text="", font_size=24, methode=None,
-                 pressed_color=None, text_color=(255, 255, 255), pressed_text_color=None):
+                 pressed_color=None, text_color=(255, 255, 255), pressed_text_color=None, animated=False):
         self.size = size
         self.position = position
         self.color = color
@@ -78,3 +78,49 @@ class Tile:
     def on_click(self):
         if self.method is not None:
             self.method()
+
+
+class ToggleTile(Tile):
+    def __init__(self, size, position, color, icon="", icon_size=(50, 50), text="", font_size=24, methode=None,
+                 pressed_color=None, text_color=(255, 255, 255), pressed_text_color=None):
+        super().__init__(size, position, color, icon, icon_size, text, font_size, methode, pressed_color,
+                         text_color, pressed_text_color)
+        self.is_toggled = False
+        self.rotation_angle = 0
+
+    def show(self, fenetre):
+        # Couleur selon l'état toggle au lieu de pressed
+        current_color = self.pressed_color if self.is_toggled else self.color
+
+        # Dessiner le contour
+        pygame.draw.rect(fenetre, current_color, (*self.position, *self.size), width=1, border_radius=10)
+
+        # Couleur de l'icône et du texte selon l'état toggle
+        icon_color = self.pressed_text_color if self.is_toggled else self.text_color
+        decalage = 10 if self.text else 0
+
+        if self.icon_path:
+            colored_icon = self.load_and_color_icon(icon_color)
+            if colored_icon:
+                # Si toggled, appliquer la rotation
+                if self.is_toggled:
+                    # Incrémenter l'angle de rotation pour l'animation
+                    self.rotation_angle = (self.rotation_angle + 20) % 360
+                    colored_icon = pygame.transform.rotate(colored_icon, self.rotation_angle)
+
+                icon_rect = colored_icon.get_rect(center=(self.position[0] + self.size[0] // 2,
+                                                          self.position[1] + self.size[1] // 2 - decalage))
+                fenetre.blit(colored_icon, icon_rect)
+
+        if self.text:
+            font = pygame.font.Font(None, self.font_size)
+            text_surface = font.render(self.text, True, icon_color)
+            text_rect = text_surface.get_rect(center=(self.position[0] + self.size[0] // 2,
+                                                      self.position[1] + self.size[1] - 30))
+            fenetre.blit(text_surface, text_rect)
+
+    def on_click(self):
+        # Toggle l'état au lieu d'appeler directement la méthode
+        self.is_toggled = not self.is_toggled
+        if self.method is not None:
+            self.method(self.is_toggled)

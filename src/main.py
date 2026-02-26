@@ -13,13 +13,21 @@ import requests
 from UpdateUtility import *
 from Gauge import *
 from Indicator import *
-from Tile import *
+from Tile import Tile, ToggleTile
 from ProgressBar import *
+
+pc_dev = False
+
+try:
+    import RPi.GPIO as GPIO
+except RuntimeError:
+    pc_dev = True
 
 pygame.init()
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 480
 FPS = 30
+FAN_PIN = 18
 
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
@@ -67,6 +75,8 @@ def shutdown(desktop=False):
     if not desktop:
         os.system("sudo shutdown -h now")
     pygame.quit()
+    if not pc_dev:
+        GPIO.cleanup()
     sys.exit()
 
 def switch_view(view):
@@ -107,18 +117,24 @@ def switch_view(view):
         if updateDownloadTile in tiles:
             tiles.remove(updateDownloadTile)
 
-        # Vérifier les mises à jour
-        current = get_current_version().strip()
-        latest = check_for_updates()
+        try:
 
-        if latest and latest != current:
-            update_available = True
-            update_version = latest
-            version = f"{current} -> {latest}"
-        else:
+            # Vérifier les mises à jour
+            current = get_current_version().strip()
+            latest = check_for_updates()
+
+            if latest and latest != current:
+                update_available = True
+                update_version = latest
+                version = f"{current} -> {latest}"
+            else:
+                update_available = False
+                update_version = None
+                version = f"{current} : Aucune mise à jour"
+        except:
             update_available = False
             update_version = None
-            version = f"{current} : Aucune mise à jour"
+            version = "Erreur de connexion"
 
         # Réinitialiser les variables de mise à jour si on revient sur la page
         if not update_in_progress:
@@ -178,6 +194,21 @@ clockTile = Tile((BUTTON_WIDTH, BUTTON_HEIGHT),
                  pressed_color=(0, 100, 180),
                  text_color=BLUE_UI)
 
+def toggle_fan(state):
+
+    if (pc_dev):
+        print(f"Fan toggled: {'ON' if state else 'OFF'}")
+        return
+    GPIO.output(FAN_PIN, GPIO.HIGH if state else GPIO.LOW)
+
+fanTile = ToggleTile((BUTTON_WIDTH*2, BUTTON_HEIGHT),
+                     (SCREEN_WIDTH/2 - BUTTON_WIDTH, 10),
+                     BLUE_UI,
+                     icon="../assets/fan_motor.png",
+                     methode=toggle_fan,
+                     pressed_color=(0, 100, 180),
+                     text_color=BLUE_UI)
+
 def start_update():
     """Démarre le téléchargement et l'installation de la mise à jour"""
     global update_in_progress, update_version, update_progress, update_status
@@ -235,6 +266,7 @@ def show_main():
     text = font_time.render(now, True, WHITE)
     screen.blit(text, text.get_rect(center=(400, 200)))
     draw_bottom_nav()
+    fanTile.show(screen)
 
 
 def get_cpu_temp():
@@ -355,12 +387,24 @@ def main():
                             start_update()
                             continue
 
+                    # Gérer les clics sur fanTile
+                    if fanTile.check_click(event.pos):
+                        fanTile.press()
+
                     # Gérer les clics sur les tiles de navigation
                     for tile in tiles:
                         if tile.check_click(event.pos):
                             tile.press()
+
             elif event.type == pygame.MOUSEBUTTONUP:
                 if event.button == 1:  # Relâchement clic gauche
+                    # Gérer le relâchement sur fanTile
+                    if fanTile.is_pressed:
+                        fanTile.release()
+                        if fanTile.check_click(event.pos):
+                            fanTile.on_click()
+
+                    # Gérer le relâchement sur les tiles de navigation
                     for tile in tiles:
                         if tile.is_pressed:
                             tile.release()
