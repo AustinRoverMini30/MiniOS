@@ -18,8 +18,13 @@ from ProgressBar import *
 
 pc_dev = False
 
+FAN_PIN = 18
+
 try:
     import RPi.GPIO as GPIO
+    GPIO.setmode(GPIO.BCM)
+    GPIO.setup(FAN_PIN, GPIO.OUT)
+    GPIO.output(FAN_PIN, GPIO.HIGH)
 except RuntimeError:
     pc_dev = True
 
@@ -27,7 +32,6 @@ pygame.init()
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 480
 FPS = 30
-FAN_PIN = 18
 
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
@@ -199,7 +203,7 @@ def toggle_fan(state):
     if (pc_dev):
         print(f"Fan toggled: {'ON' if state else 'OFF'}")
         return
-    GPIO.output(FAN_PIN, GPIO.HIGH if state else GPIO.LOW)
+    GPIO.output(FAN_PIN, GPIO.LOW if state else GPIO.HIGH)
 
 fanTile = ToggleTile((BUTTON_WIDTH*2, BUTTON_HEIGHT),
                      (SCREEN_WIDTH/2 - BUTTON_WIDTH, 10),
