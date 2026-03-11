@@ -3,6 +3,8 @@ import os
 import sys
 import shutil
 import zipfile
+from json.encoder import py_encode_basestring_ascii
+
 import pygame
 import subprocess
 import threading
@@ -56,7 +58,7 @@ progress_bar = None
 GAUGE_SIZE = 200
 ARROW_SIZE = 25
 PADDING = 50
-GAUGE_Y = 20
+GAUGE_Y = 50
 
 jaugeTemp = GaugeTemperature(GAUGE_SIZE, "../assets/Compteur.png", "../assets/Aiguille.png",
                              (50, GAUGE_Y), (GAUGE_SIZE, GAUGE_SIZE), ARROW_SIZE, title="TEMPÉRATURE")
@@ -73,7 +75,17 @@ indicatorsBox = IndicatorBox((20, GAUGE_SIZE + 70), (SCREEN_WIDTH-40, 70), WHITE
 indicatorsBox.add_indicator(wifiIndic)
 indicatorsBox.add_indicator(fanIndic)
 
+wallpaper = pygame.image.load("../assets/wallpaper.jpg")
+
+wallpaper = pygame.transform.smoothscale(wallpaper, (SCREEN_WIDTH, SCREEN_HEIGHT))
+
+# Créer le filtre assombrissant
+wallpaper_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+wallpaper_overlay.set_alpha(120)  # 0 = transparent, 255 = opaque
+wallpaper_overlay.fill(BLACK)
+
 version = "null"
+version_checked = False
 
 def shutdown(desktop=False):
     if not desktop:
@@ -93,49 +105,38 @@ def switch_view(view):
     global update_in_progress
     global update_progress
     global update_status
+    global version_checked
 
     current_view = view
 
     if (current_view == "main"):
-        if clockTile in tiles:
-            tiles.remove(clockTile)
         if updateDownloadTile in tiles:
             tiles.remove(updateDownloadTile)
-        if statsTile not in tiles:
-            tiles.append(statsTile)
-    elif (current_view == "stats"):
-        if statsTile in tiles:
-            tiles.remove(statsTile)
-        if updateDownloadTile in tiles:
-            tiles.remove(updateDownloadTile)
-        if clockTile not in tiles:
-            tiles.append(clockTile)
+            version_checked = False
     elif (current_view == "settings"):
-        # Garder le bouton clock/stats
-        if statsTile in tiles:
-            tiles.remove(statsTile)
-        if clockTile not in tiles:
-            tiles.append(clockTile)
+        if updateDownloadTile in tiles:
+            tiles.remove(updateDownloadTile)
 
         # Retirer le bouton de téléchargement de la barre de navigation (il sera affiché à côté de la progressbar)
         if updateDownloadTile in tiles:
             tiles.remove(updateDownloadTile)
 
         try:
-
-            # Vérifier les mises à jour
             current = get_current_version().strip()
-            latest = check_for_updates()
+            if not version_checked:
+                latest = check_for_updates()
+                version_checked = True
 
-            if latest and latest != current:
-                update_available = True
-                update_version = latest
-                version = f"{current} -> {latest}"
-            else:
-                update_available = False
-                update_version = None
-                version = f"{current} : Aucune mise à jour"
-        except:
+                if latest and latest != current:
+                    update_available = True
+                    update_version = latest
+                    version = f"{current} -> {latest}"
+                else:
+                    update_available = False
+                    update_version = None
+                    version = f"{current} : Aucune mise à jour"
+        except Exception as e:
+            print(e)
             update_available = False
             update_version = None
             version = "Erreur de connexion"
@@ -167,7 +168,7 @@ offTile = Tile((BUTTON_WIDTH, BUTTON_HEIGHT),
                text_color=BLUE_UI)
 
 desktopTile = Tile((BUTTON_WIDTH, BUTTON_HEIGHT),
-                   (BUTTON_SPACING * 2 + BUTTON_WIDTH, BUTTON_Y),
+                   (BUTTON_SPACING * 4 + BUTTON_WIDTH * 3, BUTTON_Y),
                    BLUE_UI,
                    icon="../assets/desktop-monitor.png",
                    methode=lambda: shutdown(desktop=True),
@@ -206,7 +207,7 @@ def toggle_fan(state):
     GPIO.output(FAN_PIN, GPIO.LOW if state else GPIO.HIGH)
 
 fanTile = ToggleTile((BUTTON_WIDTH*2, BUTTON_HEIGHT),
-                     (SCREEN_WIDTH/2 - BUTTON_WIDTH, 10),
+                     (SCREEN_WIDTH/2 - BUTTON_WIDTH, BUTTON_Y),
                      BLUE_UI,
                      icon="../assets/fan_motor.png",
                      methode=toggle_fan,
@@ -255,7 +256,7 @@ updateDownloadTile = Tile((BUTTON_WIDTH, BUTTON_HEIGHT),
                           text_color=WHITE,
                           pressed_text_color=(200, 200, 200))
 
-tiles = [offTile, desktopTile, settingsTile, statsTile]
+tiles = [offTile, desktopTile, fanTile]
 
 switch_view("main")
 
@@ -265,12 +266,15 @@ def draw_bottom_nav():
 
 def show_main():
     screen.fill(BLACK)
+
+    screen.blit(wallpaper, (0, 0))
+    screen.blit(wallpaper_overlay, (0, 0))
+
     now = datetime.now().strftime("%H : %M")
     font_time = pygame.font.Font(None, 240)
     text = font_time.render(now, True, WHITE)
     screen.blit(text, text.get_rect(center=(400, 200)))
     draw_bottom_nav()
-    fanTile.show(screen)
 
 
 def get_cpu_temp():
@@ -285,6 +289,9 @@ def get_cpu_usage():
 def show_stats():
     screen.fill(BLACK)
 
+    screen.blit(wallpaper, (0, 0))
+    screen.blit(wallpaper_overlay, (0, 0))
+
     temp = get_cpu_temp()
     cpu = get_cpu_usage()
     ram = psutil.virtual_memory().percent
@@ -296,12 +303,13 @@ def show_stats():
     jaugeCpu.show(screen, cpu)
     jaugeRam.show(screen, ram)
 
-    indicatorsBox.show(screen)
-
     draw_bottom_nav()
 
 def show_settings():
     screen.fill(BLACK)
+
+    screen.blit(wallpaper, (0, 0))
+    screen.blit(wallpaper_overlay, (0, 0))
 
     # Afficher la version
     try:
@@ -372,11 +380,15 @@ def show_settings():
         # Pour l'instant, on stocke les coordonnées dans des variables globales
         globals()['download_button_rect'] = download_rect
 
+    indicatorsBox.show(screen)
+
     draw_bottom_nav()
 
 def main():
     global current_view
     running = True
+    ondrag = False
+    x_dep, y_dep = 0, 0
 
     while running:
         for event in pygame.event.get():
@@ -384,6 +396,9 @@ def main():
                 running = False
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:  # Clic gauche
+                    x_dep, y_dep = event.pos
+                    ondrag = True
+
                     # Vérifier d'abord si on clique sur le bouton de téléchargement dans la vue settings
                     if current_view == "settings" and update_available and not update_in_progress:
                         download_rect = globals().get('download_button_rect')
@@ -391,22 +406,32 @@ def main():
                             start_update()
                             continue
 
-                    # Gérer les clics sur fanTile
-                    if fanTile.check_click(event.pos):
-                        fanTile.press()
-
                     # Gérer les clics sur les tiles de navigation
                     for tile in tiles:
                         if tile.check_click(event.pos):
                             tile.press()
 
             elif event.type == pygame.MOUSEBUTTONUP:
+
                 if event.button == 1:  # Relâchement clic gauche
-                    # Gérer le relâchement sur fanTile
-                    if fanTile.is_pressed:
-                        fanTile.release()
-                        if fanTile.check_click(event.pos):
-                            fanTile.on_click()
+
+                    if ondrag:
+                        ondrag = False
+
+                        if (x_dep - event.pos[0]) > (SCREEN_WIDTH/4):
+                            if current_view == "main":
+                                current_view = "stats"
+                        if -(x_dep - event.pos[0]) > (SCREEN_WIDTH / 4):
+                            if current_view == "stats":
+                                current_view = "main"
+
+                        elif -(y_dep - event.pos[1]) > (SCREEN_HEIGHT/2):
+                            if current_view == "main":
+                                current_view = "settings"
+
+                        elif (y_dep - event.pos[1]) > (SCREEN_HEIGHT/2):
+                            if current_view == "settings":
+                                current_view = "main"
 
                     # Gérer le relâchement sur les tiles de navigation
                     for tile in tiles:
@@ -416,10 +441,13 @@ def main():
                                 tile.on_click()
 
         if current_view == "main":
+            switch_view(current_view)
             show_main()
         elif current_view == "stats":
+            switch_view(current_view)
             show_stats()
         elif current_view == "settings":
+            switch_view(current_view)
             show_settings()
 
         pygame.display.flip()
