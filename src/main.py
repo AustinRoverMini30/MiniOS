@@ -17,6 +17,7 @@ from Gauge import *
 from Indicator import *
 from Tile import Tile, ToggleTile
 from ProgressBar import *
+from KilometerManager import *
 
 pc_dev = False
 
@@ -71,9 +72,8 @@ wifiIndic = Indicator((100, 30), (255, 100, 0), GRAY_DARK, "../assets/wifi.png")
 fanIndic = Indicator((100, 30), (50, 0, 255), GRAY_DARK, "../assets/fan.png")
 updateIndic = Indicator((100, 30), (0, 255, 0), GRAY_DARK, "../assets/update.png", methode=check_for_updates)
 
-indicatorsBox = IndicatorBox((20, GAUGE_SIZE + 70), (SCREEN_WIDTH-40, 70), WHITE, 2)
+indicatorsBox = IndicatorBox((20, 20), (SCREEN_WIDTH-40, 70), BLUE_UI, 1)
 indicatorsBox.add_indicator(wifiIndic)
-indicatorsBox.add_indicator(fanIndic)
 
 wallpaper = pygame.image.load("../assets/wallpaper.jpg")
 
@@ -86,6 +86,16 @@ wallpaper_overlay.fill(BLACK)
 
 version = "null"
 version_checked = False
+
+# Variables pour la gestion des kilomètres
+kilometer_keyboard = None
+kilometer_fields = []
+kilometer_active_field = None
+kilometer_entries = []
+kilometer_scroll_offset = 0
+kilometer_mode = "input"  # "input" ou "history"
+kilometer_history_graph = None
+kilometer_stats = None
 
 def shutdown(desktop=False):
     if not desktop:
@@ -106,14 +116,26 @@ def switch_view(view):
     global update_progress
     global update_status
     global version_checked
+    global kilometer_keyboard
+    global kilometer_fields
+    global kilometer_active_field
+    global kilometer_entries
+    global kilometer_history_graph
 
     current_view = view
 
     if (current_view == "main"):
-        if updateDownloadTile in tiles:
-            tiles.remove(updateDownloadTile)
-            version_checked = False
+        if fanTile not in tiles:
+            tiles.append(fanTile)
+
+    elif (current_view == "stats"):
+        if fanTile in tiles:
+            tiles.remove(fanTile)
+
     elif (current_view == "settings"):
+        if fanTile in tiles:
+            tiles.remove(fanTile)
+
         if updateDownloadTile in tiles:
             tiles.remove(updateDownloadTile)
 
@@ -152,6 +174,25 @@ def switch_view(view):
                                       bg_color=GRAY_DARK,
                                       fill_color=BLUE_UI,
                                       border_color=WHITE)
+    elif (current_view == "kilometers"):
+        # Initialiser les composants pour la vue kilomètres (une seule fois)
+        if kilometer_keyboard is None:
+            kilometer_keyboard = NumericKeyboard((425, 100))
+
+        if not kilometer_fields:
+            # Créer les champs de saisie
+            kilometer_fields = [
+                InputField((50, 100), (300, 60), "Kilométrage", "km", max_length=8, integer_only=True),
+                InputField((50, 190), (300, 60), "Litres", "L", max_length=6),
+                InputField((50, 280), (300, 60), "Prix", "€", max_length=7)
+            ]
+            # Charger les entrées du CSV (seulement lors de l'initialisation)
+            kilometer_entries = load_entries()
+
+        # Initialiser le graphique d'historique
+        if kilometer_history_graph is None:
+            from KilometerManager import HistoryGraph
+            kilometer_history_graph = HistoryGraph((50, 110), (700, 350))
 
 # Configuration des 4 boutons en ligne
 BUTTON_WIDTH = 170
@@ -305,6 +346,80 @@ def show_stats():
 
     draw_bottom_nav()
 
+def show_kilometers():
+    global kilometer_scroll_offset
+    global kilometer_mode
+    global kilometer_stats
+
+    screen.fill(BLACK)
+    screen.blit(wallpaper, (0, 0))
+    screen.blit(wallpaper_overlay, (0, 0))
+
+    # Titre
+    font_title = pygame.font.Font(None, 48)
+    title_text = "CARNET DE BORD" if kilometer_mode == "input" else "HISTORIQUE"
+    title_surface = font_title.render(title_text, True, WHITE)
+    screen.blit(title_surface, (SCREEN_WIDTH // 2 - title_surface.get_width() // 2, 10))
+
+
+    if kilometer_mode == "input":
+        # Mode saisie - afficher les champs et le clavier
+        # Dessiner les champs de saisie
+        for field in kilometer_fields:
+            field.draw(screen)
+
+        # Dessiner le clavier numérique
+        if kilometer_keyboard:
+            kilometer_keyboard.draw(screen)
+
+        # Bouton Valider - style épuré avec contour bleu fin
+        validate_button_rect = pygame.Rect(425, 390, 160, 50)
+        pygame.draw.rect(screen, BLUE_UI, validate_button_rect, width=1, border_radius=10)
+        font_button = pygame.font.Font(None, 32)
+        validate_text = font_button.render("VALIDER", True, BLUE_UI)
+        screen.blit(validate_text, validate_text.get_rect(center=validate_button_rect.center))
+
+        # Bouton Effacer - style épuré avec contour bleu fin
+        clear_button_rect = pygame.Rect(600, 390, 160, 50)
+        pygame.draw.rect(screen, BLUE_UI, clear_button_rect, width=1, border_radius=10)
+        clear_text = font_button.render("EFFACER", True, BLUE_UI)
+        screen.blit(clear_text, clear_text.get_rect(center=clear_button_rect.center))
+
+        # Stocker les rectangles pour la détection de clic
+        globals()['validate_button_rect'] = validate_button_rect
+        globals()['clear_button_rect'] = clear_button_rect
+
+        # Bouton HISTORIQUE sous les champs de saisie
+        history_button_rect = pygame.Rect(50, 370, 300, 50)
+        pygame.draw.rect(screen, BLUE_UI, history_button_rect, width=1, border_radius=10)
+        font_button = pygame.font.Font(None, 32)
+        history_text = font_button.render("HISTORIQUE", True, BLUE_UI)
+        screen.blit(history_text, history_text.get_rect(center=history_button_rect.center))
+        globals()['mode_button_rect'] = history_button_rect
+
+
+    elif kilometer_mode == "history":
+        # Mode historique - afficher le graphique des statistiques
+
+        # Bouton SAISIE pour revenir au mode input
+        mode_button_rect = pygame.Rect(50, 60, 150, 40)
+        pygame.draw.rect(screen, BLUE_UI, mode_button_rect, width=1, border_radius=10)
+        font_mode = pygame.font.Font(None, 28)
+        mode_text = font_mode.render("SAISIE", True, BLUE_UI)
+        screen.blit(mode_text, mode_text.get_rect(center=mode_button_rect.center))
+        globals()['mode_button_rect'] = mode_button_rect
+
+        if kilometer_stats is None:
+            # Calculer les stats
+            from KilometerManager import calculate_consumption_stats
+            kilometer_stats = calculate_consumption_stats(kilometer_entries)
+
+        # Afficher le graphique
+        if kilometer_history_graph:
+            kilometer_history_graph.draw(screen, kilometer_stats)
+
+
+
 def show_settings():
     screen.fill(BLACK)
 
@@ -386,11 +501,25 @@ def show_settings():
 
 def main():
     global current_view
+    global kilometer_active_field
+    global kilometer_fields
+    global kilometer_keyboard
+    global kilometer_entries
+    global kilometer_mode
+    global kilometer_stats
+    global kilometer_history_graph
+
     running = True
     ondrag = False
     x_dep, y_dep = 0, 0
+    previous_view = None  # Pour détecter les changements de vue
 
     while running:
+        # Appeler switch_view uniquement si la vue a changé
+        if current_view != previous_view:
+            switch_view(current_view)
+            previous_view = current_view
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -398,6 +527,75 @@ def main():
                 if event.button == 1:  # Clic gauche
                     x_dep, y_dep = event.pos
                     ondrag = True
+
+                    # Gestion des clics dans la vue kilometers
+                    if current_view == "kilometers":
+                        # Vérifier le bouton de changement de mode
+                        mode_rect = globals().get('mode_button_rect')
+                        if mode_rect and mode_rect.collidepoint(event.pos):
+                            # Basculer entre les modes
+                            kilometer_mode = "history" if kilometer_mode == "input" else "input"
+                            # Recalculer les stats si on passe en mode history
+                            if kilometer_mode == "history":
+                                from KilometerManager import calculate_consumption_stats
+                                kilometer_stats = calculate_consumption_stats(kilometer_entries)
+                            continue
+
+                        # Mode saisie
+                        if kilometer_mode == "input":
+                            # Vérifier d'abord si on clique sur le clavier (priorité au clavier)
+                            if kilometer_keyboard:
+                                key = kilometer_keyboard.handle_click(event.pos)
+                                if key and kilometer_active_field:
+                                    kilometer_active_field.add_char(key)
+                                    continue  # Ne pas propager le clic
+
+                            # Vérifier si on clique sur le bouton Valider
+                            validate_rect = globals().get('validate_button_rect')
+                            if validate_rect and validate_rect.collidepoint(event.pos):
+                                # Récupérer les valeurs des champs
+                                km_value = kilometer_fields[0].value
+                                litres_value = kilometer_fields[1].value
+                                prix_value = kilometer_fields[2].value
+
+                                # Sauvegarder si tous les champs sont remplis
+                                if km_value and litres_value and prix_value:
+                                    if save_entry(km_value, litres_value, prix_value):
+                                        # Effacer les champs après sauvegarde
+                                        for field in kilometer_fields:
+                                            field.clear()
+                                            field.is_active = False
+                                        kilometer_active_field = None
+                                        # Recharger les entrées et recalculer les stats
+                                        kilometer_entries = load_entries()
+                                        from KilometerManager import calculate_consumption_stats
+                                        kilometer_stats = calculate_consumption_stats(kilometer_entries)
+                                continue  # Ne pas propager le clic
+
+                            # Vérifier si on clique sur le bouton Effacer
+                            clear_rect = globals().get('clear_button_rect')
+                            if clear_rect and clear_rect.collidepoint(event.pos):
+                                for field in kilometer_fields:
+                                    field.clear()
+                                    field.is_active = False
+                                kilometer_active_field = None
+                                continue  # Ne pas propager le clic
+
+                            # Vérifier si on clique sur un champ de saisie
+                            field_clicked = False
+                            for field in kilometer_fields:
+                                if field.handle_click(event.pos):
+                                    # Désactiver tous les champs
+                                    for f in kilometer_fields:
+                                        f.is_active = False
+                                    # Activer le champ cliqué
+                                    field.is_active = True
+                                    kilometer_active_field = field
+                                    field_clicked = True
+                                    break
+
+                            if field_clicked:
+                                continue  # Ne pas propager le clic
 
                     # Vérifier d'abord si on clique sur le bouton de téléchargement dans la vue settings
                     if current_view == "settings" and update_available and not update_in_progress:
@@ -407,9 +605,11 @@ def main():
                             continue
 
                     # Gérer les clics sur les tiles de navigation
-                    for tile in tiles:
-                        if tile.check_click(event.pos):
-                            tile.press()
+
+                    if current_view != "kilometers":
+                        for tile in tiles:
+                            if tile.check_click(event.pos):
+                                tile.press()
 
             elif event.type == pygame.MOUSEBUTTONUP:
 
@@ -421,9 +621,14 @@ def main():
                         if (x_dep - event.pos[0]) > (SCREEN_WIDTH/4):
                             if current_view == "main":
                                 current_view = "stats"
+                            elif current_view == "kilometers":
+                                current_view = "main"
+
                         if -(x_dep - event.pos[0]) > (SCREEN_WIDTH / 4):
                             if current_view == "stats":
                                 current_view = "main"
+                            elif current_view == "main":
+                                current_view = "kilometers"
 
                         elif -(y_dep - event.pos[1]) > (SCREEN_HEIGHT/2):
                             if current_view == "main":
@@ -440,15 +645,28 @@ def main():
                             if tile.check_click(event.pos):
                                 tile.on_click()
 
+            elif event.type == pygame.MOUSEWHEEL:
+                # Gestion du scroll avec la molette dans la vue historique
+                if current_view == "kilometers" and kilometer_mode == "history":
+                    if kilometer_history_graph:
+                        kilometer_history_graph.handle_scroll(-event.y)
+
+            elif event.type == pygame.MOUSEMOTION:
+                # Gestion du drag pour le scroll dans la vue historique
+                if current_view == "kilometers" and kilometer_mode == "history" and ondrag:
+                    if kilometer_history_graph:
+                        dy = event.pos[1] - y_dep
+                        kilometer_history_graph.handle_drag(dy)
+                        y_dep = event.pos[1]
+
         if current_view == "main":
-            switch_view(current_view)
             show_main()
         elif current_view == "stats":
-            switch_view(current_view)
             show_stats()
         elif current_view == "settings":
-            switch_view(current_view)
             show_settings()
+        elif current_view == "kilometers":
+            show_kilometers()
 
         pygame.display.flip()
         clock.tick(FPS)
